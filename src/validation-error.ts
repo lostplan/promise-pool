@@ -14,8 +14,17 @@ export class ValidationError extends Error {
 
   /**
    * Returns a validation error with the given `message`.
+   *
+   * @deprecated use the `createFromMessage()` method instead
    */
   static createFrom (message: string): ValidationError {
+    return this.createFromMessage(message)
+  }
+
+  /**
+   * Returns a validation error with the given `message`.
+   */
+  static createFromMessage (message: string): ValidationError {
     return new this(message)
   }
 }

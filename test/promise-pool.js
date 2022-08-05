@@ -410,9 +410,9 @@ test('onTaskStarted is called when a task is about to be processed', async () =>
   await PromisePool
     .withConcurrency(concurrency)
     .for(ids)
-    .onTaskStarted((item, pool) => {
+    .onTaskStarted((item, _index, pool) => {
       startedIds.push(item)
-      expect(pool.activeTaskCount()).toBeLessThanOrEqual(concurrency)
+      expect(pool.activeTasksCount()).toBeLessThanOrEqual(concurrency)
       expect(pool.processedPercentage()).toEqual(percentageArr.shift())
     })
     .process(async () => {
@@ -439,10 +439,10 @@ test('onTaskFinished is called when a task was processed', async () => {
   await PromisePool
     .withConcurrency(concurrency)
     .for(ids)
-    .onTaskFinished((item, pool) => {
+    .onTaskFinished((item, _index, pool) => {
       finishedIds.push(item)
       expect(finishedIds).toEqual(pool.processedItems())
-      expect(pool.activeTaskCount()).toBeLessThanOrEqual(concurrency)
+      expect(pool.activeTasksCount()).toBeLessThanOrEqual(concurrency)
       expect(pool.processedPercentage()).toEqual(percentageArr.shift())
     })
     .process(async () => {

@@ -47,7 +47,7 @@ test('stops the pool from sync .handleError', async () => {
     .withConcurrency(2)
     .for(timeouts)
     .withConcurrency(2)
-    .handleError((_, __, pool) => {
+    .handleError((_error, _item, _index, pool) => {
       return pool.stop()
     })
     .process(async timeout => {
@@ -68,7 +68,7 @@ test('stops the pool from async error handler', async () => {
   const { results } = await PromisePool
     .for(timeouts)
     .withConcurrency(2)
-    .handleError(async (_, __, pool) => {
+    .handleError(async (_error, _item, _index, pool) => {
       pool.stop()
     })
     .process(async (timeout) => {

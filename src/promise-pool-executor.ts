@@ -1,10 +1,10 @@
 'use strict'
 
 import { ReturnValue } from './return-value'
+import { ValidationError } from './validation-error'
 import { PromisePoolError } from './promise-pool-error'
 import { StopThePromisePoolError } from './stop-the-promise-pool-error'
 import { ErrorHandler, ProcessHandler, OnProgressCallback, Statistics, Stoppable, UsesConcurrency } from './contracts'
-import { ValidationError } from './validation-error'
 
 export class PromisePoolExecutor<T, R> implements UsesConcurrency, Stoppable, Statistics<T> {
   /**
@@ -50,7 +50,7 @@ export class PromisePoolExecutor<T, R> implements UsesConcurrency, Stoppable, St
   /**
    * The async processing function receiving each item from the `items` array.
    */
-  private handler: (item: T, index: number, pool: Stoppable & UsesConcurrency) => any
+  private handler: ProcessHandler<T, R>
 
   /**
    * The async error handling function.
@@ -81,7 +81,7 @@ export class PromisePoolExecutor<T, R> implements UsesConcurrency, Stoppable, St
       processedItems: [],
     }
 
-    this.handler = () => {}
+    this.handler = (() => {}) as any
     this.errorHandler = undefined
     this.onTaskStartedHandlers = []
     this.onTaskFinishedHandlers = []
@@ -96,7 +96,7 @@ export class PromisePoolExecutor<T, R> implements UsesConcurrency, Stoppable, St
    */
   useConcurrency (concurrency: number): this {
     if (!this.isValidConcurrency(concurrency)) {
-      throw ValidationError.createFrom(`"concurrency" must be a number, 1 or up. Received "${concurrency}" (${typeof concurrency})`)
+      throw ValidationError.createFromMessage(`"concurrency" must be a number, 1 or up. Received "${concurrency}" (${typeof concurrency})`)
     }
 
     this.meta.concurrency = concurrency
@@ -256,7 +256,7 @@ export class PromisePoolExecutor<T, R> implements UsesConcurrency, Stoppable, St
    *
    * @returns {PromisePoolExecutor}
    */
-  handleError (handler?: (error: Error, item: T, pool: Stoppable & UsesConcurrency) => Promise<void> | void): this {
+  handleError (handler?: ErrorHandler<T>): this {
     this.errorHandler = handler
 
     return this
@@ -345,26 +345,26 @@ export class PromisePoolExecutor<T, R> implements UsesConcurrency, Stoppable, St
    */
   validateInputs (): this {
     if (typeof this.handler !== 'function') {
-      throw ValidationError.createFrom('The first parameter for the .process(fn) method must be a function')
+      throw ValidationError.createFromMessage('The first parameter for the .process(fn) method must be a function')
     }
 
     if (!Array.isArray(this.items())) {
-      throw ValidationError.createFrom(`"items" must be an array. Received ${typeof this.items()}`)
+      throw ValidationError.createFromMessage(`"items" must be an array. Received ${typeof this.items()}`)
     }
 
     if (this.errorHandler && typeof this.errorHandler !== 'function') {
-      throw ValidationError.createFrom(`The error handler must be a function. Received ${typeof this.errorHandler}`)
+      throw ValidationError.createFromMessage(`The error handler must be a function. Received ${typeof this.errorHandler}`)
     }
 
     this.onTaskStartedHandlers.forEach(handler => {
       if (handler && typeof handler !== 'function') {
-        throw ValidationError.createFrom(`The onTaskStarted handler must be a function. Received ${typeof handler}`)
+        throw ValidationError.createFromMessage(`The onTaskStarted handler must be a function. Received ${typeof handler}`)
       }
     })
 
     this.onTaskFinishedHandlers.forEach(handler => {
       if (handler && typeof handler !== 'function') {
-        throw ValidationError.createFrom(`The error handler must be a function. Received ${typeof handler}`)
+        throw ValidationError.createFromMessage(`The error handler must be a function. Received ${typeof handler}`)
       }
     })
 
@@ -424,14 +424,14 @@ export class PromisePoolExecutor<T, R> implements UsesConcurrency, Stoppable, St
       .catch(async error => {
         return this
           .removeActive(task)
-          .handleErrorFor(error, item)
+          .handleErrorFor(error, item, index)
       }).finally(() => {
         this.processedItems().push(item)
-        this.runOnTaskFinishedHandlers(item)
+        this.runOnTaskFinishedHandlers(item, index)
       })
 
     this.tasks().push(task)
-    this.runOnTaskStartedHandlers(item)
+    this.runOnTaskStartedHandlers(item, index)
   }
 
   /**
@@ -479,8 +479,9 @@ export class PromisePoolExecutor<T, R> implements UsesConcurrency, Stoppable, St
    *
    * @param {Error} error
    * @param {T} item
+   * @param {Number} index
    */
-  async handleErrorFor (error: Error, item: T): Promise<void> {
+  async handleErrorFor (error: Error, item: T, index: number): Promise<void> {
     if (this.isStoppingThePoolError(error)) {
       return
     }
@@ -491,7 +492,7 @@ export class PromisePoolExecutor<T, R> implements UsesConcurrency, Stoppable, St
     }
 
     this.hasErrorHandler()
-      ? await this.runErrorHandlerFor(error, item)
+      ? await this.runErrorHandlerFor(error, item, index)
       : this.saveErrorFor(error, item)
   }
 
@@ -522,10 +523,11 @@ export class PromisePoolExecutor<T, R> implements UsesConcurrency, Stoppable, St
    *
    * @param {Error} processingError
    * @param {T} item
+   * @param {Number} index
    */
-  async runErrorHandlerFor (processingError: Error, item: T): Promise<void> {
+  async runErrorHandlerFor (processingError: Error, item: T, index: number): Promise<void> {
     try {
-      return await this.errorHandler?.(processingError, item, this)
+      return await this.errorHandler?.(processingError, item, index, this)
     } catch (error: any) {
       this.rethrowIfNotStoppingThePool(error)
     }
@@ -534,18 +536,18 @@ export class PromisePoolExecutor<T, R> implements UsesConcurrency, Stoppable, St
   /**
    * Run the onTaskStarted handlers.
    */
-  runOnTaskStartedHandlers (item: T): void {
+  runOnTaskStartedHandlers (item: T, index: number): void {
     this.onTaskStartedHandlers.forEach(handler => {
-      handler(item, this)
+      handler(item, index, this)
     })
   }
 
   /**
    * Run the onTaskFinished handlers.
    */
-  runOnTaskFinishedHandlers (item: T): void {
+  runOnTaskFinishedHandlers (item: T, index: number): void {
     this.onTaskFinishedHandlers.forEach(handler => {
-      handler(item, this)
+      handler(item, index, this)
     })
   }
 
