@@ -4,6 +4,10 @@ import { ReturnValue } from './return-value'
 import { PromisePoolExecutor } from './promise-pool-executor'
 import { ErrorHandler, ProcessHandler, OnProgressCallback } from './contracts'
 
+export const notRun: unique symbol = Symbol('notRun')
+export const rejected: unique symbol = Symbol('rejected')
+export type CorrespondingResult<R> = R | typeof notRun | typeof rejected
+
 export class PromisePool<T, UseCorrespondingResults = false> {
   /**
    * The processable items.
@@ -32,9 +36,6 @@ export class PromisePool<T, UseCorrespondingResults = false> {
    */
   private readonly onTaskFinishedHandlers: Array<OnProgressCallback<T>>
 
-  public static readonly notRun: Symbol = Symbol('notRun')
-  public static readonly rejected: Symbol = Symbol('rejected')
-
   /**
    * Instantiates a new promise pool with a default `concurrency: 10` and `items: []`.
    *
@@ -56,7 +57,7 @@ export class PromisePool<T, UseCorrespondingResults = false> {
    *
    * @returns {PromisePool}
    */
-  withConcurrency (concurrency: number): PromisePool<T> {
+  withConcurrency (concurrency: number): PromisePool<T, UseCorrespondingResults> {
     this.concurrency = concurrency
 
     return this
@@ -80,8 +81,13 @@ export class PromisePool<T, UseCorrespondingResults = false> {
    *
    * @returns {PromisePool}
    */
-  for<T> (items: T[]): PromisePool<T> {
-    return new PromisePool<T>(items).withConcurrency(this.concurrency)
+  for<T> (items: T[]): PromisePool<T, UseCorrespondingResults> {
+    const promisePool = new PromisePool<T, UseCorrespondingResults>(items)
+      .withConcurrency(this.concurrency)
+    if (this.shouldResultsCorrespond) {
+      return promisePool.useCorrespondingResults()
+    }
+    return promisePool
   }
 
   /**
@@ -102,7 +108,7 @@ export class PromisePool<T, UseCorrespondingResults = false> {
    *
    * @returns {PromisePool}
    */
-  handleError (handler: ErrorHandler<T>): PromisePool<T> {
+  handleError (handler: ErrorHandler<T>): PromisePool<T, UseCorrespondingResults> {
     this.errorHandler = handler
 
     return this
@@ -115,7 +121,7 @@ export class PromisePool<T, UseCorrespondingResults = false> {
    *
    * @returns {PromisePool}
    */
-  onTaskStarted (handler: OnProgressCallback<T>): PromisePool<T> {
+  onTaskStarted (handler: OnProgressCallback<T>): PromisePool<T, UseCorrespondingResults> {
     this.onTaskStartedHandlers.push(handler)
 
     return this
@@ -128,7 +134,7 @@ export class PromisePool<T, UseCorrespondingResults = false> {
     *
     * @returns {PromisePool}
     */
-  onTaskFinished (handler: OnProgressCallback<T>): PromisePool<T> {
+  onTaskFinished (handler: OnProgressCallback<T>): PromisePool<T, UseCorrespondingResults> {
     this.onTaskFinishedHandlers.push(handler)
 
     return this
@@ -148,11 +154,11 @@ export class PromisePool<T, UseCorrespondingResults = false> {
    *
    * @returns Promise<{ results, errors }>
    */
-  async process<Result, ErrorType = any> (callback: ProcessHandler<T, Result>): Promise<
+  async process<R, ErrorType = any> (callback: ProcessHandler<T, R>): Promise<
   ReturnValue<T,
   UseCorrespondingResults extends true
-    ? Result | Symbol
-    : Result,
+    ? CorrespondingResult<R>
+    : R,
   ErrorType>
   > {
     return new PromisePoolExecutor<T, any>()
